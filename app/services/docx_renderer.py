@@ -1,6 +1,6 @@
 import os
 from docxtpl import DocxTemplate
-from app.schemas.gov_documents import TORDraftPayload, MemoDraftPayload, MeetingAgendaPayload
+from app.schemas.gov_documents import MemoDraftPayload, MeetingAgendaPayload
 from app.config import settings
 
 def resolve_path(configured_path: str, default_local: str) -> str:
@@ -14,36 +14,6 @@ def resolve_path(configured_path: str, default_local: str) -> str:
     if os.path.exists(default_local):
         return default_local
     return configured_path
-
-def render_tor_docx(payload: TORDraftPayload, template_filename: str = "tor_template.docx", output_filename: str = None) -> str:
-    """Renders a validated TORDraftPayload into a .docx file using docxtpl."""
-    template_dir = resolve_path(settings.TEMPLATE_DIR, "app/templates")
-    template_path = os.path.join(template_dir, template_filename)
-    
-    if not os.path.exists(template_path):
-        fallback_path = os.path.join("app", "templates", template_filename)
-        if os.path.exists(fallback_path):
-            template_path = fallback_path
-        else:
-            raise FileNotFoundError(f"Template not found at: {template_path}")
-
-    output_dir = resolve_path(settings.OUTPUT_DIR, "data/outputs")
-    if not os.path.exists(output_dir):
-        if output_dir.startswith("/app"):
-            output_dir = "data/outputs"
-        os.makedirs(output_dir, exist_ok=True)
-
-    if not output_filename:
-        safe_name = "".join([c if c.isalnum() else "_" for c in payload.project_name])[:30]
-        output_filename = f"tor_draft_{safe_name}.docx"
-
-    output_path = os.path.join(output_dir, output_filename)
-    
-    doc = DocxTemplate(template_path)
-    context = payload.model_dump()
-    doc.render(context)
-    doc.save(output_path)
-    return output_path
 
 def render_memo_docx(payload: MemoDraftPayload, template_filename: str = "memo_template.docx", output_filename: str = None) -> str:
     """Renders an official Memo (บันทึกข้อความ) with 1.5cm Garuda emblem into .docx."""

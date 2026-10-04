@@ -1,0 +1,141 @@
+# TOR compliance rule registry.
+#
+# Every rule needs:
+#   check      : name of a function in app/tor/checks.py (CHECKS registry)
+#   severity   : critical | major | minor   (critical/major failures block + trigger revision)
+#   applies_to : {procurement_types: [...], methods: [...]}  - empty/omitted = all
+#   citation   : {doc: <substring of file stem in ocr_docs>, clause: "มาตรา ๙" | "ข้อ ๑๖๒"}
+#   verified   : true only after a procurement expert has signed off on params + citation.
+#                Unverified rules never FAIL; they report NEEDS_HUMAN.
+#
+# Bump `version` whenever params change so reports are traceable.
+
+version: "2026.10.05-draft2"
+
+rules:
+  # ---------------- internal consistency (no legal source, pure math) ----------------
+  - id: TEMPLATE_CHAPTERS_COMPLETE
+    title: บทที่แม่แบบกำหนดต้องมีเนื้อหาครบ
+    check: chapters_complete
+    severity: critical
+    verified: true
+
+  - id: DRAFT_NOT_FALLBACK
+    title: เนื้อหาต้องไม่ใช่ข้อความสำรองที่ระบบใส่แทนเมื่อ LLM ล้มเหลว
+    check: no_fallback_content
+    severity: major
+    verified: true
+
+  - id: BOQ_SUM_EQUALS_BUDGET
+    title: ผลรวมรายการแจกแจงงบประมาณต้องเท่ากับวงเงินงบประมาณ
+    check: boq_sum_equals_budget
+    severity: critical
+    params: {tolerance_baht: 0.01}
+    verified: true
+
+  - id: INSTALLMENTS_SUM_100
+    title: ร้อยละการจ่ายเงินทุกงวดรวมกันต้องเท่ากับ 100
+    check: installments_sum_100
+    severity: critical
+    verified: true
+
+  - id: INSTALLMENTS_WITHIN_DURATION
+    title: กำหนดส่งมอบงวดงานต้องเรียงลำดับและไม่เกินระยะเวลาดำเนินงาน
+    check: installments_within_duration
+    severity: major
+    verified: true
+
+  # ---------------- procurement law ----------------
+  - id: METHOD_TERMINOLOGY_CONSISTENT
+    title: ถ้อยคำในเอกสารต้องสอดคล้องกับวิธีจัดซื้อจัดจ้างที่ใช้
+    check: method_terminology
+    severity: major
+    params:
+      forbidden_by_method:
+        specific: ["ประกวดราคาอิเล็กทรอนิกส์", "e-bidding", "ตลาดอิเล็กทรอนิกส์", "e-market"]
+        selection: ["ประกวดราคาอิเล็กทรอนิกส์", "e-bidding", "ตลาดอิเล็กทรอนิกส์", "e-market"]
+        e_market: ["ประกวดราคาอิเล็กทรอนิกส์", "e-bidding"]
+        e_bidding: ["ตลาดอิเล็กทรอนิกส์", "e-market"]
+    citation: {doc: พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ, clause: มาตรา ๕๕}
+    verified: true
+
+  - id: SPEC_NO_BRAND_LOCK
+    title: ห้ามกำหนดคุณลักษณะเฉพาะใกล้เคียงยี่ห้อหรือผู้ขายรายใดรายหนึ่ง
+    check: llm_judge
+    severity: critical
+    params:
+      guidance: >-
+        ตรวจหาการระบุยี่ห้อ ชื่อผลิตภัณฑ์ รุ่น ชื่อบริษัท หรือคุณลักษณะที่ตั้งใจให้ตรงกับผลิตภัณฑ์
+        ของผู้ขายรายเดียว (เช่น ค่าตัวเลขเฉพาะเจาะจงผิดปกติ เทคโนโลยีที่เป็นกรรมสิทธิ์) ยกเว้นกรณีที่
+        ระบุอย่างชัดแจ้งว่ามียี่ห้อเดียวหรือใช้ถ้อยคำ "หรือเทียบเท่า" ซึ่งไม่ถือว่าล็อกสเปค
+      chapter_kinds: [text, list]
+    citation: {doc: พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ, clause: มาตรา ๙}
+    verified: true
+
+  - id: QUALIFICATIONS_PROPORTIONATE
+    title: คุณสมบัติผู้ยื่นข้อเสนอต้องไม่กีดกันการแข่งขันเกินความจำเป็น
+    check: llm_judge
+    severity: major
+    params:
+      # Small models miss violations when asked open-ended; answer each item explicitly instead.
+      checklist:
+        - บังคับให้เป็นตัวแทนจำหน่าย คู่ค้า หรือได้รับการแต่งตั้งจากผู้ผลิตหรือบริษัทรายใดรายหนึ่ง
+        - กำหนดทุนจดทะเบียนหรือขนาดกิจการสูงกว่าวงเงินงบประมาณของโครงการ
+        - จำกัดที่ตั้งสำนักงาน จังหวัด สัญชาติ หรือพื้นที่ของผู้ยื่นข้อเสนอ
+        - บังคับใบรับรองหรือสมาชิกภาพที่มีผู้ออกให้เพียงรายเดียว
+      guidance: >-
+        คุณสมบัติทั่วไปตามกฎหมาย (ล้มละลาย ผู้ทิ้งงาน ผลประโยชน์ร่วมกัน ฯลฯ) การกำหนดบุคลากรหรือประสบการณ์
+        ที่สัมพันธ์กับงาน และมูลค่าผลงานอ้างอิงที่ไม่เกินวงเงินงบประมาณ ไม่ถือเป็นการละเมิด
+      chapter_kinds: [text, list]
+      chapter_title_keywords: [คุณสมบัติ, เกณฑ์]
+    citation: {doc: พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ, clause: มาตรา ๘}
+    verified: true
+
+  - id: PENALTY_RATE_RANGE
+    title: อัตราค่าปรับรายวันต้องอยู่ในช่วงที่ระเบียบกำหนด
+    check: penalty_rate_range
+    severity: critical
+    params:
+      # ร้อยละต่อวัน
+      default_range: [0.01, 0.20]
+      consulting_range: [0.01, 0.10]
+      revise_keywords: [ค่าปรับ]
+    applies_to: {procurement_types: [goods, services, consulting]}
+    citation: {doc: ระเบียบกระทรวงการคลังว่าด้วยการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560, clause: ข้อ ๑๖๒}
+    verified: true
+
+  - id: PERFORMANCE_BOND_RATE
+    title: หลักประกันสัญญาร้อยละ 5 (สูงสุดร้อยละ 10 กรณีสำคัญเป็นพิเศษ)
+    check: bond_rate
+    severity: major
+    params: {standard_pct: 5, max_pct: 10, revise_keywords: [หลักประกัน]}
+    citation: {doc: ระเบียบกระทรวงการคลังว่าด้วยการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560, clause: ข้อ ๑๖๘}
+    verified: true
+
+  - id: SUBCONTRACT_PENALTY_MIN
+    title: กรณีจ้างช่วงโดยฝ่าฝืนข้อตกลง ค่าปรับต้องไม่น้อยกว่าร้อยละ 10 ของวงเงินที่จ้างช่วง
+    check: subcontract_penalty
+    severity: major
+    params: {min_pct: 10, revise_keywords: [จ้างช่วง]}
+    citation: {doc: พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ, clause: มาตรา ๙๕}
+    verified: true
+
+  # ---------------- pending expert verification ----------------
+  - id: REFERENCE_WORK_MAX_50PCT
+    title: มูลค่าผลงานอ้างอิงที่กำหนดต้องไม่เกินร้อยละ 50 ของวงเงินงบประมาณ
+    check: reference_work_cap
+    severity: major
+    params: {max_ratio: 0.5, revise_keywords: [ผลงาน]}
+    applies_to: {methods: [e_bidding, selection]}
+    note: แหล่งที่มา (หนังสือเวียนกรมบัญชีกลาง) ยังไม่อยู่ใน ocr_docs
+    verified: false
+
+  - id: SPECIFIC_METHOD_BUDGET_CAP
+    title: วิธีเฉพาะเจาะจงตามมาตรา ๕๖ (๒) (ข) ใช้ได้เมื่อวงเงินไม่เกินที่กฎกระทรวงกำหนด
+    check: specific_method_cap
+    severity: critical
+    params: {max_budget: 500000}
+    applies_to: {methods: [specific]}
+    note: กฎกระทรวงกำหนดวงเงินฯ พ.ศ. ๒๕๖๐ ยังไม่อยู่ใน ocr_docs; มาตรา ๕๖ (๒) อื่นๆ (เช่น ยกเว้นกรณีพิเศษ) ต้องให้คนพิจารณา
+    citation: {doc: พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ, clause: มาตรา ๕๖}
+    verified: false

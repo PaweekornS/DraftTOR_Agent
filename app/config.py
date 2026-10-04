@@ -1,13 +1,20 @@
 import os
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://openrouter.ai/api/v1"
-    LLM_API_KEY: str = ""
+    # Read from OPENROUTER_API_KEY; LLM_API_KEY still accepted for older .env files.
+    LLM_API_KEY: str = Field("", validation_alias=AliasChoices("OPENROUTER_API_KEY", "LLM_API_KEY"))
     LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
     LLM_TEMPERATURE: float = 0.2
     OUTPUT_DIR: str = "data/outputs"
     TEMPLATE_DIR: str = "app/templates"
+    REGULATION_CORPUS_DIR: str = "ocr_docs/typhoon_ocr"
+    TOR_RULES_PATH: str = "app/tor/rules/tor_rules.yaml"
+    TOR_MAX_REVISIONS: int = 2
+    TOR_AUDIT_DIR: str = "data/audit"
+    TOR_LLM_CONCURRENCY: int = 4
 
     model_config = SettingsConfigDict(
         env_file=".env",

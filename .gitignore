@@ -30,3 +30,8 @@ Desktop.ini
 # Output test docs (keep directory structure)
 data/outputs/*.docx
 !data/outputs/.gitkeep
+ocr_docs/
+
+# TOR audit logs and evaluation runs
+data/audit/
+data/eval/

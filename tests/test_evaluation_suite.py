@@ -10,10 +10,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.schemas.gov_documents import (
     DocumentType,
-    TORInputRequest,
     MemoInputRequest,
     MeetingAgendaRequest,
-    TORDraftPayload,
     MemoDraftPayload,
     MeetingAgendaPayload
 )
@@ -52,59 +50,6 @@ class TestGovernmentDocumentEvaluation(unittest.TestCase):
             "passed": passed,
             "details": details
         })
-
-    def test_01_tor_document_full_evaluation(self):
-        """Test TOR document generation, BOQ table math, Garuda placement, and legal clauses."""
-        print("\n>>> [EVAL 1] Evaluating TOR (Terms of Reference) & Budget Breakdown...")
-        budget = 3500000.00
-        req = TORInputRequest(
-            project_name="โครงการพัฒนาระบบสืบค้นข้อมูลอัจฉริยะ (AI Smart Search)",
-            agency_name="สำนักงานพัฒนารัฐบาลดิจิทัล (องค์การมหาชน)",
-            budget=budget,
-            raw_requirements="ต้องการพัฒนาระบบ AI Semantic Search เพื่อสืบค้นเอกสารราชการและมติคณะรัฐมนตรี พร้อมระบบความปลอดภัย UAT และอบรม 365 วัน",
-            duration_days=365
-        )
-
-        res = document_orchestrator.draft_document(DocumentType.TOR, req)
-        payload: TORDraftPayload = res["payload"]
-        docx_path = res["output_docx_path"]
-
-        # --- Gate 1: Structural Completeness ---
-        self.assertIsNotNone(payload.background_and_rationale)
-        self.assertTrue(len(payload.background_and_rationale) > 100, "Background must be substantive")
-        self.assertTrue(len(payload.objectives) >= 2, "Objectives must have at least 2 items")
-        self.assertTrue(len(payload.scope_of_work) >= 3, "Scope of work must have at least 3 items")
-        self.assertTrue(len(payload.deliverables_and_payments) >= 2, "Deliverables must have at least 2 installments")
-        self.log_metric("TOR", "Structural Completeness", True, f"7 sections complete, {len(payload.scope_of_work)} scope items")
-
-        # --- Gate 2: Financial Integrity (BOQ Math) ---
-        self.assertTrue(len(payload.budget_breakdown) >= 3, "Must have at least 3 BOQ line items")
-        calculated_sum = sum(item.total_price for item in payload.budget_breakdown)
-        self.assertAlmostEqual(calculated_sum, budget, places=2, msg=f"BOQ Sum {calculated_sum} must equal budget {budget}")
-        
-        for item in payload.budget_breakdown:
-            expected_line_total = round(item.qty * item.unit_price, 2)
-            self.assertAlmostEqual(item.total_price, expected_line_total, places=2)
-        self.log_metric("TOR", "Financial Integrity (100% Math)", True, f"Budget: THB {budget:,.2f} == BOQ Sum: THB {calculated_sum:,.2f}")
-
-        # --- Gate 3: Visual & Media Edge Cases (Garuda + Table in docx) ---
-        self.assertTrue(os.path.exists(docx_path), "Docx file must exist on disk")
-        doc = docx.Document(docx_path)
-        
-        # Check image rels
-        images = [r.target_ref for r in doc.part.rels.values() if "image" in r.target_ref]
-        self.assertTrue(len(images) >= 1, "Garuda emblem must be physically embedded in docx package")
-        
-        # Check dynamic table
-        self.assertTrue(len(doc.tables) >= 1, "Docx must contain at least 1 formatted table")
-        table = doc.tables[0]
-        self.assertTrue(len(table.rows) >= len(payload.budget_breakdown), f"Table rows ({len(table.rows)}) must reflect budget items")
-        self.log_metric("TOR", "Garuda & Dynamic Table Rendering", True, f"Garuda verified. Table has {len(table.rows)} rows")
-
-        # --- Gate 4: Legal Compliance ---
-        self.assertTrue(any("ไม่เป็นบุคคลล้มละลาย" in q for q in payload.vendor_qualifications), "Must contain standard Act B.E. 2560 qualification")
-        self.assertTrue("Price" in payload.evaluation_criteria or "เกณฑ์ราคา" in payload.evaluation_criteria or "คุณภาพ" in payload.evaluation_criteria)
-        self.log_metric("TOR", "Public Procurement Act 2560 Compliance", True, "Mandatory vendor qualification & evaluation criteria verified")
 
     def test_02_memo_document_full_evaluation(self):
         """Test Thai Official Memorandum (บันทึกข้อความ) with 1.5cm Garuda and Saraban structure."""

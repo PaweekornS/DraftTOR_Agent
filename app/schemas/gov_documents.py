@@ -3,38 +3,9 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 class DocumentType(str, Enum):
-    TOR = "TOR"
     MEMO = "MEMO"
     MEETING_AGENDA = "MEETING_AGENDA"
     LEAVE_REQUEST = "LEAVE_REQUEST"
-
-class BudgetItem(BaseModel):
-    name: str = Field(..., description="ชื่อรายการพัสดุหรือค่าใช้จ่าย")
-    qty: int = Field(1, description="จำนวน")
-    unit: str = Field("รายการ", description="หน่วยนับ")
-    unit_price: float = Field(..., description="ราคาต่อหน่วย (บาท)")
-    total_price: float = Field(..., description="จำนวนเงินรวม (บาท)")
-
-# ----------------- TOR SCHEMAS -----------------
-class TORInputRequest(BaseModel):
-    project_name: str = Field(..., description="ชื่อโครงการจัดซื้อจัดจ้าง")
-    agency_name: str = Field(..., description="ชื่อหน่วยงานผู้จัดซื้อ")
-    budget: float = Field(..., description="งบประมาณโครงการ (บาท)")
-    raw_requirements: str = Field(..., description="รายละเอียดขอบเขตและความต้องการคร่าวๆ จากเจ้าหน้าที่")
-    duration_days: int = Field(365, description="ระยะเวลาดำเนินงาน (วัน)")
-
-class TORDraftPayload(BaseModel):
-    project_name: str
-    agency_name: str
-    budget: float
-    duration_days: int
-    background_and_rationale: str
-    objectives: List[str]
-    budget_breakdown: List[BudgetItem] = Field(default_factory=list, description="ตารางแจกแจงงบประมาณ")
-    vendor_qualifications: List[str]
-    scope_of_work: List[str]
-    deliverables_and_payments: List[str]
-    evaluation_criteria: str
 
 # ----------------- MEMO SCHEMAS -----------------
 class MemoInputRequest(BaseModel):

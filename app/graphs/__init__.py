@@ -1,4 +1,5 @@
-from .state import TORGraphState
-from .workflow import tor_graph, build_tor_graph
+"""Legacy Memo and Meeting Agenda pipelines. TOR drafting lives in app/tor."""
+from .memo_workflow import draft_memo_document
+from .agenda_workflow import draft_meeting_agenda_document
 
-__all__ = ["TORGraphState", "tor_graph", "build_tor_graph"]
+__all__ = ["draft_memo_document", "draft_meeting_agenda_document"]

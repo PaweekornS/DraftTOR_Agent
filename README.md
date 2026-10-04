@@ -1,200 +1,214 @@
-# 🏛️ DraftTOR Agent: Thai Government Multi-Document Drafting Engine
+# DraftTOR Agent: TOR drafting and procurement-compliance checking
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![LangGraph](https://img.shields.io/badge/orchestration-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Evaluation Pass Rate](https://img.shields.io/badge/Evaluation%20Pass%20Rate-100%25-brightgreen.svg)](#-evaluation-scorecard)
 
-An AI-powered agentic system engineered to draft fully compliant, legally sound, and properly formatted **official Thai Government documents (.docx)** from raw user requests.
+DraftTOR Agent drafts Thai government Terms of Reference (ร่างขอบเขตของงาน, TOR) and checks them against procurement law (พ.ร.บ.การจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. ๒๕๖๐ and ระเบียบกระทรวงการคลังฯ ๒๕๖๐). It is one workflow in a Procurement Agentic SaaS: a **super-orchestrator** sends it the project details and the chapter template, and it returns the drafted chapters together with a compliance report.
 
-Built with **LangGraph**, **Pydantic**, and **docxtpl**, the system strictly adheres to the **Office of the Prime Minister's Regulations on Office Material B.E. 2526 (ระเบียบงานสารบรรณ พ.ศ. ๒๕๒๖)** and the **Public Procurement and Supplies Administration Act B.E. 2560 (พ.ร.บ.การจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. ๒๕๖๐)**.
+The pipeline does two jobs:
 
----
+1. **Write** each chapter the template asks for.
+2. **Verify** the whole document against a rule registry in which every rule is tied to a clause in the regulation corpus. Users then edit the document in the web app. The system re-checks after every edit and reports problems, but never overrides the user. Any blocking finding the user chooses to keep must be acknowledged with a reason, and that acknowledgement is audit-logged.
 
-## 🌟 Key Features
-
-- **Multi-Document Support**: Drafts Terms of Reference (TOR), Internal Memorandums (บันทึกข้อความ), and Meeting Agendas (ระเบียบวาระการประชุม) through a unified dispatcher.
-- **Official Garuda Emblem Placement**:
-  - **3.0 cm** centered for External Documents & TOR.
-  - **1.5 cm** top-left for Internal Memorandums (บันทึกข้อความ).
-- **100% Deterministic Financial Arithmetic**: Eliminates LLM math hallucinations in Bill of Quantities (BOQ) tables. The sum of all itemized breakdown costs always equals the total project budget exactly (0.00 cent discrepancy).
-- **Bureaucratic Typography & Margins**: Formatted in **TH Sarabun PSK 16pt** with standard Thai government margins (Top 2.5 cm, Bottom 2.0 cm, Left 3.0 cm, Right 2.0 cm).
-- **Automated 5-Gate Evaluation Suite**: Comprehensive automated test gates evaluating structure, math integrity, physical asset embedding, legal compliance, and scratchpad leakage.
+> TOR drafting lives in `app/tor/`. The fixed 7-section TOR pipeline it replaced has been removed. The Memo and Meeting Agenda pipelines in `app/graphs/` are unchanged.
 
 ---
 
-## 📑 Supported Government Documents
-
-| Document Type | Thai Title | Core Regulation / Standard | Hard Edge Cases Handled |
-| :--- | :--- | :--- | :--- |
-| **TOR** | ร่างขอบเขตของงาน (จัดซื้อจัดจ้าง) | พ.ร.บ. จัดซื้อจัดจ้างฯ 2560 | 3.0cm Garuda, 7 standard sections, dynamic BOQ table with exact math, Sec. 64 vendor qualifications. |
-| **MEMO** | บันทึกข้อความ (หนังสือภายใน) | ระเบียบงานสารบรรณ 2526 | 1.5cm Garuda top-left, 3-part structure (ต้นเรื่อง, ข้อพิจารณา, ข้อเสนอ "จึงเรียนมาเพื่อโปรด..."). |
-| **MEETING_AGENDA** | ระเบียบวาระการประชุม | มาตรฐานการประชุมราชการ | 5 standard agendas (ประธานแจ้ง, รับรองรายงาน, เพื่อทราบ, เพื่อพิจารณา, อื่นๆ). |
-
----
-
-## 🏗️ Architecture Overview
+## Architecture
 
 ```mermaid
 graph TD
-    UserReq[User Input / Request] --> Dispatcher[DocumentOrchestrator]
-    
-    Dispatcher -->|DocumentType.TOR| TORPipeline[TOR LangGraph Machine]
-    Dispatcher -->|DocumentType.MEMO| MemoPipeline[Official Memo Pipeline]
-    Dispatcher -->|DocumentType.MEETING_AGENDA| AgendaPipeline[Meeting Agenda Pipeline]
-    
-    TORPipeline --> MathEngine[Deterministic Python Math Engine]
-    MathEngine --> BOQTable[Exact BOQ Table]
-    
-    BOQTable --> DocxRenderer[docxtpl Renderer]
-    MemoPipeline --> DocxRenderer
-    AgendaPipeline --> DocxRenderer
-    
-    DocxRenderer --> FinalDocs[(Official .docx Files with Garuda)]
+    SO[Super-orchestrator<br/>TORRequest + chapter template] --> RM
+
+    subgraph "app/tor/graph.py: draft and verify (LangGraph)"
+        RM[resolve_method<br/>deterministic: method from type + budget] --> DC[draft_chapters<br/>one structured LLM call per chapter]
+        DC --> EF[extract_facts<br/>LLM extraction + regex backstop]
+        EF --> CC[check_compliance<br/>rule registry]
+        CC -->|blocking findings and revisions left| RV[revise<br/>redraft only the failing chapters]
+        RV --> EF
+        CC -->|clean or out of revisions| FN[finalize]
+    end
+
+    FN --> RES[TORResult<br/>chapters + facts + ComplianceReport]
+    RES --> UI[Web editor]
+    UI -->|AI edit of one chapter| RC[revise_chapter]
+    UI -->|manual edit| UE[apply_user_edit]
+    RC & UE --> RCK[recheck the whole document] --> UI
+    UI -->|keep a failing item| ACK[acknowledge with reason] --> GATE[export_gate]
+    RC & UE & ACK -.-> AUD[(Audit log)]
+
+    REG[(ocr_docs: 93 regulation files<br/>1,336 clauses)] -.-> DC
+    REG -.-> CC
 ```
+
+### Components
+
+| Module | Responsibility |
+|---|---|
+| [app/tor/schemas.py](app/tor/schemas.py) | Contracts: `TORRequest` (input from the orchestrator), `TORTemplateSpec` / `TemplateChapter`, `DraftChapter`, `TORFacts`, `Finding`, `ComplianceReport`, `TORResult` |
+| [app/tor/procurement.py](app/tor/procurement.py) | Chooses the procurement method (e-bidding / e-market / specific / selection) deterministically. The LLM never decides legal thresholds. |
+| [app/tor/regulations.py](app/tor/regulations.py) | Splits the OCR corpus into clauses (`มาตรา` / `ข้อ`). Exact clause lookup supports citations; character-trigram BM25 supplies drafting context. Thai text has no word boundaries, so trigrams avoid needing a tokenizer. |
+| [app/tor/drafting.py](app/tor/drafting.py) | Drafts each chapter as JSON validated by Pydantic. All money arithmetic runs in Python: the LLM proposes BOQ categories and weights, and the code allocates the budget exactly. Fact extraction uses the LLM with a regex backstop. |
+| [app/tor/checks.py](app/tor/checks.py) | Check implementations and the runner. |
+| [app/tor/rules/tor_rules.yaml](app/tor/rules/tor_rules.yaml) | Rule registry: severity, scope (procurement type and method), citation, `verified` flag, parameters. |
+| [app/tor/service.py](app/tor/service.py) | Operations after generation: `revise_chapter`, `apply_user_edit`, `recheck`, `acknowledge`, `export_gate`, `AuditLog`. |
+
+### Compliance rules
+
+| Kind | Rules | How it is checked |
+|---|---|---|
+| Internal consistency | chapters complete, no fallback text, BOQ total equals budget, installments total 100%, installments ordered and within the contract duration | Pure Python |
+| Legal, numeric | daily penalty rate (ระเบียบฯ ข้อ ๑๖๒), contract bond 5–10% (ข้อ ๑๖๘), subcontracting penalty ≥ 10% (มาตรา ๙๕), wording consistent with the procurement method (มาตรา ๕๕) | Facts extracted, then checked in Python |
+| Legal, semantic | no brand or vendor lock in specifications (มาตรา ๙); vendor qualifications proportionate to the work (มาตรา ๘) | LLM judge, given the exact clause text and the agency's own requirements, with a grounding guard (below) |
+| Pending expert sign-off | reference-work value ≤ 50% of budget; budget cap for the specific method | Report `needs_human`; never `fail` |
+
+**Design principles**
+
+- **Every rule cites a real clause.** A unit test confirms each citation resolves to a clause in `ocr_docs`.
+- **Unverified rules cannot block.** Until a procurement expert sets `verified: true`, a rule can report `needs_human` but never `fail`.
+- **Missing data is never a silent pass.** If a required fact is absent, the check reports `warn`. If the extractor itself failed, it reports `needs_human`.
+- **Grounding guard on the LLM judge.** The judge must quote the offending text. If the quote does not appear in the draft, the finding is discarded and the item is routed to `needs_human`.
+- **Users stay in charge after generation.** A user's edits are re-checked and reported, never auto-corrected. Exporting with blocking findings requires an `acknowledge` with a reason, recorded in the audit log.
 
 ---
 
-## 📊 Evaluation Scorecard
+## Usage
 
-All generated documents pass our automated 5-Gate test suite (`tests/test_evaluation_suite.py`):
+**From the super-orchestrator:** call `draft_and_verify_tor(TORRequest)` from `app.tor`. The request contains:
 
-```
-================================================================================
-GOVERNMENT DOCUMENT AI EVALUATION SCORECARD
-================================================================================
-Document Type | Evaluation Metric                        | Status   | Details
---------------------------------------------------------------------------------
-TOR          | Structural Completeness                  | [PASS]   | 7 sections complete, 12 scope items
-TOR          | Financial Integrity (100% Math)          | [PASS]   | Budget: THB 3,500,000.00 == BOQ Sum: THB 3,500,000.00
-TOR          | Garuda & Dynamic Table Rendering         | [PASS]   | Garuda verified. Table has 5 rows
-TOR          | Public Procurement Act 2560 Compliance   | [PASS]   | Mandatory vendor qualification & evaluation criteria verified
-MEMO         | Saraban Header Adherence                 | [PASS]   | agency, doc_number, date, subject, recipient intact
-MEMO         | 3-Part Bureaucratic Content Structure    | [PASS]   | Background, Considerations, and Action conform to Saraban
-MEMO         | Garuda Emblem Embedded                   | [PASS]   | 1.5cm Garuda emblem verified in docx
-MEMO         | Clean Text / Zero Hallucination Scratchpad | [PASS]   | No LLM scratchpad or reasoning leakage
-AGENDA       | Standard 5-Agendas Format                | [PASS]   | Agendas 1 to 5 fully conform to meeting standards
-AGENDA       | Meeting Agenda Docx Rendered             | [PASS]   | Docx generated (12 paragraphs)
---------------------------------------------------------------------------------
-Total Tests: 10 | Passed: 10 | Pass Rate: 100.0% (Execution Time: 31.28s)
-================================================================================
-```
+- the project details: name, agency, budget, duration and raw requirements;
+- the procurement type;
+- optionally, the procurement method. If it is omitted, the method is resolved deterministically.
+- a `TORTemplateSpec`, which lists the chapters. Each chapter has an `id`, `title`, `kind` (`text`, `list`, `boq` or `payment_schedule`), optional `instructions`, and a `required` flag.
+
+The call returns a `TORResult` containing the structured chapters, the extracted facts, and a `ComplianceReport`. Each finding in the report has `rule_id`, `status`, `evidence`, `suggestion` and `citation`.
+
+**After generation (web editor):** all four functions are in `app.tor`.
+
+| Function | When to use it |
+|---|---|
+| `revise_chapter(result, chapter_id, instruction, actor)` | The user asks the AI to change one chapter. Other chapters stay as they are, and the whole document is re-checked. |
+| `apply_user_edit(result, chapter, actor)` | The user edits a chapter by hand. The whole document is re-checked; the result is advisory only. |
+| `export_gate(result)` | Returns the blocking findings that have not been acknowledged. An empty list means the document can be exported. |
+| `acknowledge(result, finding_keys, actor, reason)` | The user accepts responsibility for specific findings. A reason is required. |
+
+The audit log is written to `data/audit/<document_id>.jsonl` as one event per line: `generated`, `ai_revision`, `user_edit`, `acknowledge`. In production, replace it with a database table.
 
 ---
 
-## 🚀 Quick Start
+## Evaluation
 
-### 1. Clone & Install Dependencies
+There are two layers.
 
-```bash
-git clone https://github.com/your-username/DraftTOR_Agent.git
-cd DraftTOR_Agent
+**1. Unit tests (offline, stub LLM, real regulation corpus): 18 tests** in `tests/test_tor_compliance.py`. Run them with pytest.
 
-python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-# source .venv/bin/activate
+They cover rule and citation resolution, each deterministic check, the judge grounding guard, the draft → check → revise loop, the revision limit, revise-chapter isolation, and the acknowledgement lifecycle.
 
-pip install -r requirements.txt
-```
+**2. Evaluation against the real LLM: [scripts/eval_tor_compliance.py](scripts/eval_tor_compliance.py)**. Pass `--suites A,B,C` and `--runs N`. The full report is written to `data/eval/tor_eval_<timestamp>.json`.
 
-### 2. Configure Environment
+| Suite | What it measures |
+|---|---|
+| **A: checker** | 14 TORs seeded with known defects (recall), 6 compliant near-miss TORs that look suspicious (false positives), and 1 clean baseline. Includes subtle cases: CPU model naming, iOS/Lightning lock, location restrictions, excessive registered capital. |
+| **B: end-to-end** | Three requests drafted from scratch (services via e-bidding 3.5M, goods via the specific method 300k, consulting 2M). Measures pass rate, revisions, fallback chapters, latency and LLM calls. |
+| **C: chapter revision** | Whether the instruction was followed, whether other chapters stayed unchanged, and whether a non-compliant user instruction is still obeyed but flagged. |
 
-Copy `env.example` to `.env` and fill in your OpenRouter API key:
+### Results: `qwen/qwen3.5-9b` via OpenRouter, 3 runs per suite
 
-```bash
-cp env.example .env
-```
+Each column is one development iteration, measured with the same evaluation script.
 
-```ini
-OPENROUTER_API_KEY="your-openrouter-api-key"
-LLM_MODEL_NAME="qwen/qwen3.5-9b"
-LLM_BASE_URL="https://openrouter.ai/api/v1"
-OUTPUT_DIR="data/outputs"
-TEMPLATE_DIR="app/templates"
-```
+| Metric | Run 1: baseline | Run 2: bug fixes | Run 3: parallel (4 workers) | **Final** |
+|---|---|---|---|---|
+| A: recall on seeded defects | 92.9% | 92.9% | 90.5% | **100%** (42/42) |
+| A: semantic (brand lock, qualifications) | 100% | 100% | 81% | **100%** |
+| A: numeric facts | 75% | 75% | 100% | **100%** |
+| A: false positives on near-misses | 0% | 5.6% | 0% | **0%** (0/18) |
+| A: false positives on the clean baseline | 0/3 | 0/3 | 0/3 | **0/3** |
+| B: end-to-end pass rate | 0/9 | 8/9 | 9/9 | **8/9** |
+| B: mean revisions per TOR | 2.0 | 1.0 | 1.0 | **0.44** |
+| B: median latency per TOR | ~120 s | ~65 s | ~34 s | **~34 s** (mean 71 s, see below) |
+| B: mean LLM calls per TOR | 23.8 | 15.0 | 18.3 | 17.2 |
+| C: instruction followed / other chapters untouched | 3/3 / 3/3 | 2/3 / 3/3 | 3/3 / 3/3 | **3/3 / 3/3** |
+| C: non-compliant user edit (brand name) flagged | 1/1 | 0/1 | 1/1 | 0/1 |
 
-### 3. Run the Automated Evaluation Suite
+### What changed between runs
 
-```bash
-python tests/test_evaluation_suite.py
-```
+| Run | Problem found | Fix |
+|---|---|---|
+| 1 → 2 | When the LLM extractor failed, the bond check **passed silently** | Regex backstop for numeric facts. Missing facts now report `warn`, or `needs_human` if extraction failed. |
+| 1 → 2 | Retrieval pulled a contract template (a rented-car clause) into a software TOR | Retrieval limited to the Act and the Ministry of Finance regulation; prompt forbids copying unrelated text |
+| 1 → 2 | The judge flagged a "3-year warranty" that the agency itself asked for | The judge now receives the agency's requirements; the qualification rule is limited to qualification chapters |
+| 2 → 3 | A user instruction naming a brand was refused | Drafting constraints are dropped when the user gives an explicit instruction. The checker reports, the user decides. |
+| 2 → 3 | Reference-work value was never extracted | Regex backstop for amounts written with commas or Thai digits |
+| 2 → 3 | Fully sequential LLM calls | Parallel chapter drafting and revision, facts and judges run concurrently, global limit of 4 LLM requests, judge verdicts cached per chapter |
+| 3 → final | Judging one chapter at a time hid the project budget; the open-ended "any violations?" question missed capital and location restrictions (0/5) | Project context added to the judge prompt; the qualification rule now uses a **per-item checklist**, so the model must answer every item. This raised those cases to 5/5 and 4/5 in a targeted 50-sample test, and 3/3 in the final run. |
 
-### 4. Programmatic Usage Example
+**Reading the final run**
 
-```python
-from app.schemas.gov_documents import DocumentType, TORInputRequest
-from app.graphs.document_orchestrator import document_orchestrator
-
-# Define your project requirements
-request = TORInputRequest(
-    project_name="โครงการพัฒนาระบบสืบค้นข้อมูลอัจฉริยะ (AI Smart Search)",
-    agency_name="สำนักงานพัฒนารัฐบาลดิจิทัล (องค์การมหาชน)",
-    budget=3500000.00,
-    raw_requirements="พัฒนาระบบ AI Semantic Search เพื่อสืบค้นเอกสารราชการและมติ ครม. พร้อม UAT และฝึกอบรม",
-    duration_days=365
-)
-
-# Generate official .docx
-result = document_orchestrator.draft_document(DocumentType.TOR, request)
-print(f"Generated Document: {result['output_docx_path']}")
-```
-
-Generated `.docx` files will be saved in `data/outputs/`.
+- **The checker is reliable on this test set:** every seeded defect was caught, with no false positives on near-misses or on the clean TOR.
+- **One remaining end-to-end failure:** the drafter still sometimes writes e-bidding wording in a specific-method TOR. The checker catches it, but two revision rounds did not fix it.
+- **Latency is dominated by tail requests:** typical TORs take 11–52 s, but one took 402 s because of slow or failed requests (40 s timeout, then fallback model). The fix is a shorter timeout plus retry or hedged requests (not done yet).
+- **Brand-lock detection after a user edit is not stable:** a user-requested brand name was flagged in 2 of the 4 runs. Converting the brand-lock rule to the checklist format is the likely fix.
+- **Small sample:** the test set has 14 defect cases and 6 near-misses, written by us. These results show the mechanism works, not real-world accuracy.
 
 ---
 
-## 📁 Project Structure
+## Known limitations and next steps
+
+- **Missing sources:** the corpus lacks the ministerial regulation on budget caps for the specific method (กฎกระทรวงกำหนดวงเงินฯ ๒๕๖๐) and the circular on the reference-work cap, so both rules stay `verified: false`.
+- **Expert sign-off:** a procurement officer must sign off every rule parameter before setting `verified: true`. The OCR of ข้อ ๑๖๒ is partly garbled, so the "ไม่ต่ำกว่าวันละ ๑๐๐ บาท" minimum is not encoded yet.
+- **Unstable LLM judge:** verdicts are now cached per chapter, but a 9B model still varies between runs. Next steps: switch the brand-lock rule to the checklist format, use a larger judge model, or run self-consistency voting.
+- **Specific-method wording:** the drafter can still write e-bidding wording. Consider a deterministic rewrite or a stronger method-specific prompt.
+- **Tail latency:** most TORs finish in about 34 s, but slow requests (40 s timeout, then fallback model) can push one past 400 s. Add a shorter timeout with retry or hedged requests.
+- **No `.docx` output yet:** the new pipeline returns structured data. A renderer for variable chapter templates is still to do.
+- **Adversarial set:** the seeded defects were written by us. A set curated by procurement officers is needed to measure real-world recall.
+
+---
+
+## Project structure
 
 ```
 DraftTOR_Agent/
 ├── app/
-│   ├── assets/
-│   │   └── garuda.png             # Authentic Thai Government Garuda emblem
-│   ├── graphs/
-│   │   ├── document_orchestrator.py # Unified multi-document dispatcher
-│   │   ├── workflow.py            # TOR LangGraph state machine
-│   │   ├── memo_workflow.py       # Official Memorandum pipeline
-│   │   ├── agenda_workflow.py     # Meeting Agenda pipeline
-│   │   ├── nodes.py               # Section drafters & deterministic math engine
-│   │   └── state.py               # Graph state definitions
-│   ├── schemas/
-│   │   └── gov_documents.py       # Pydantic models for TOR, Memo, Agenda
-│   ├── services/
-│   │   ├── docx_renderer.py       # docxtpl rendering engine
-│   │   ├── fewshot_store.py       # Ground truth few-shot reference repository
-│   │   └── llm_factory.py         # OpenRouter client with reasoning control
-│   └── templates/                 # Word templates with TH Sarabun PSK 16pt
-│       ├── tor_template.docx
-│       ├── memo_template.docx
-│       └── meeting_agenda_template.docx
+│   ├── tor/                      # Template-driven TOR drafting and compliance (current)
+│   │   ├── graph.py              #   LangGraph: draft → verify → revise
+│   │   ├── concurrency.py        #   4-request LLM limit, parallel map, judge cache
+│   │   ├── service.py            #   revise_chapter / apply_user_edit / acknowledge / export_gate / AuditLog
+│   │   ├── drafting.py           #   structured chapter drafting, BOQ allocation, fact extraction
+│   │   ├── checks.py             #   rule runner, deterministic checks, grounded LLM judge
+│   │   ├── regulations.py        #   clause index over ocr_docs (exact lookup + trigram BM25)
+│   │   ├── procurement.py        #   deterministic method resolution
+│   │   ├── llm.py                #   JSON → Pydantic with one retry carrying the validation error
+│   │   ├── schemas.py
+│   │   └── rules/tor_rules.yaml  #   rule registry (versioned)
+│   ├── graphs/                   # Memo and Meeting Agenda pipelines (legacy)
+│   ├── schemas/  services/  templates/  assets/
+├── ocr_docs/typhoon_ocr/         # Regulation corpus (Act, MoF regulation, ministerial regulations, announcements)
 ├── data/
-│   ├── ground_truth/              # DGA official IT project TOR PDFs & JSON
-│   └── outputs/                   # Generated .docx documents
-├── docs/
-│   ├── ARCHITECTURE.md            # In-depth system architecture & edge cases
-│   ├── EVALUATION.md              # 5-Gate evaluation framework & scorecard
-│   └── USAGE_GUIDE.md             # Code recipes for each document type
+│   ├── ground_truth/             # DGA TOR PDFs and parsed JSON
+│   ├── templates/raw/            # TOR and memo source templates
+│   ├── eval/                     # Evaluation reports (git-ignored)
+│   └── audit/                    # Audit logs (git-ignored)
+├── scripts/
+│   ├── eval_tor_compliance.py    # Evaluation against the real LLM (suites A/B/C)
+│   └── data_prep/                # Corpus download, ground-truth extraction, docx template builders
 ├── tests/
-│   └── test_evaluation_suite.py   # Multi-document automated test suite
-├── .gitignore
-├── env.example
-├── requirements.txt
-└── README.md
+│   ├── test_tor_compliance.py    # Current pipeline (offline)
+│   └── test_evaluation_suite.py  # Memo / Agenda pipelines (calls the LLM)
 ```
 
----
+## Configuration
 
-## 📚 Detailed Documentation
+Copy `env.example` to `.env`. Variables:
 
-- [Strategic Plan & Roadmap](docs/PLAN.md)
-- [System Architecture & Edge Cases](docs/ARCHITECTURE.md)
-- [Evaluation Framework & Scorecard](docs/EVALUATION.md)
-- [Usage Guide & Code Recipes](docs/USAGE_GUIDE.md)
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_BASE_URL` / `OPENROUTER_API_KEY` / `LLM_MODEL_NAME` | OpenRouter / – / `qwen/qwen3.5-9b` | Any OpenAI-compatible endpoint (OpenRouter for development, vLLM on-premise) |
+| `REGULATION_CORPUS_DIR` | `ocr_docs/typhoon_ocr` | Regulation corpus |
+| `TOR_RULES_PATH` | `app/tor/rules/tor_rules.yaml` | Rule registry |
+| `TOR_MAX_REVISIONS` | `2` | Revision budget for the automatic draft-and-revise loop |
+| `TOR_AUDIT_DIR` | `data/audit` | Audit log location |
 
----
+## License
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
