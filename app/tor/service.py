@@ -142,3 +142,19 @@ def acknowledge(
 def export_gate(result: TORResult) -> List[Finding]:
     """Blocking findings the user has not acknowledged. Empty list = OK to export."""
     return result.report.unacknowledged_blocking
+
+
+def export_docx(
+    result: TORResult,
+    out_path: str,
+    actor: str,
+    draft: bool = False,
+    audit: Optional[AuditLog] = None,
+) -> Path:
+    """Render the downloadable .docx. Refused (ExportBlocked) while unacknowledged blocking
+    findings remain, unless draft=True, which stamps every page as a draft."""
+    from app.tor.export_docx import render_tor_docx
+    path = render_tor_docx(result, out_path, draft=draft)
+    (audit or AuditLog()).append(result.document_id, "export_draft" if draft else "export", actor,
+                                 result.version, path=str(path))
+    return path

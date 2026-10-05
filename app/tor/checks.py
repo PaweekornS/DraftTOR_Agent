@@ -17,7 +17,7 @@ from app.tor.concurrency import JudgeCache, pmap, stable_hash
 from app.tor.llm import LLMFn, call_structured
 from app.tor.regulations import RegulationIndex
 from app.tor.schemas import (
-    ChapterKind, Citation, DraftChapter, Finding, FindingStatus, ProcurementMethod,
+    Anchor, ChapterKind, Citation, DraftChapter, Finding, FindingStatus, ProcurementMethod,
     ProcurementType, Severity, TORFacts, TORRequest,
 )
 
@@ -55,6 +55,26 @@ def load_rules(path: Optional[str] = None) -> RuleRegistry:
     return registry
 
 
+# ----------------- anchoring -----------------
+def locate(ch: DraftChapter, evidence: str) -> Optional[Anchor]:
+    """Find where `evidence` sits in a chapter so the web editor can highlight it.
+
+    List chapters: the item index plus offsets inside that item. Text chapters: offsets in `text`.
+    Returns None when the evidence cannot be located (e.g. paraphrased by an LLM judge).
+    """
+    ev = evidence.strip()
+    if not ev:
+        return None
+    if ch.items:
+        for i, item in enumerate(ch.items):
+            pos = item.find(ev)
+            if pos >= 0:
+                return Anchor(item_index=i, start=pos, end=pos + len(ev))
+        return None
+    pos = ch.text.find(ev)
+    return Anchor(start=pos, end=pos + len(ev)) if pos >= 0 else None
+
+
 # ----------------- context -----------------
 @dataclass
 class CheckContext:
@@ -83,6 +103,9 @@ class CheckContext:
         if not self.rule.verified and status == FindingStatus.FAIL:
             status = FindingStatus.NEEDS_HUMAN
             message = f"[กฎยังไม่ผ่านการยืนยัน] {message}"
+        if kw.get("chapter_id") and kw.get("evidence") and "anchor" not in kw:
+            ch = next((c for c in self.chapters if c.id == kw["chapter_id"]), None)
+            kw["anchor"] = locate(ch, kw["evidence"]) if ch else None
         return Finding(
             rule_id=self.rule.id, title=self.rule.title, severity=self.rule.severity,
             status=status, message=message, citation=self.citation, **kw,
@@ -191,7 +214,7 @@ def method_terminology(ctx: CheckContext) -> List[Finding]:
                 out.append(ctx.finding(
                     FindingStatus.FAIL,
                     f"พบคำว่า '{phrase}' แต่โครงการนี้ใช้วิธี {ctx.method.value}",
-                    chapter_id=ch.id, evidence=_snippet(text, phrase),
+                    chapter_id=ch.id, evidence=_snippet(text, phrase), anchor=locate(ch, phrase),
                     suggestion="แก้ถ้อยคำให้ตรงกับวิธีจัดซื้อจัดจ้างที่ใช้จริง",
                 ))
     return out or ctx.ok()

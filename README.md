@@ -17,6 +17,8 @@ The pipeline does two jobs:
 
 ## Architecture
 
+A polished version of this diagram is in [docs/architecture.html](docs/architecture.html). Open it in a browser.
+
 ```mermaid
 graph TD
     SO[Super-orchestrator<br/>TORRequest + chapter template] --> RM
@@ -97,11 +99,22 @@ The call returns a `TORResult` containing the structured chapters, the extracted
 
 The audit log is written to `data/audit/<document_id>.jsonl` as one event per line: `generated`, `ai_revision`, `user_edit`, `acknowledge`. In production, replace it with a database table.
 
+### Outputs
+
+| Audience | Format | How |
+|---|---|---|
+| Web editor | **Structured JSON** (`TORDocumentView`, schema v1.0). It is not HTML or Markdown: chapters stay typed (text, list, BOQ, payment schedule), so edits round-trip to `apply_user_edit()`. Each finding carries an `anchor` (item index plus character offsets) for highlighting. | `to_view(result)`. JSON Schema for frontend types: [docs/api/tor_document.v1.0.schema.json](docs/api/tor_document.v1.0.schema.json). Sample: [docs/api/sample_tor_document.json](docs/api/sample_tor_document.json). |
+| User download | **.docx** in Thai government layout: TH Sarabun New 16 pt, standard margins, Garuda emblem, numbered chapters, BOQ and payment tables with the total in Thai words, committee sign-off, page numbers | `export_docx(result, path, actor)`. Refused while unacknowledged blocking findings remain. With `draft=True`, every page is stamped ฉบับร่าง. Sample: [docs/samples/tor_sample_draft.pdf](docs/samples/tor_sample_draft.pdf). |
+
+Thai text in the .docx gets invisible word breaks (U+200B, from PyThaiNLP tokenization) so Word wraps lines correctly without Thai proofing tools. The JSON keeps the original text.
+
+To run the whole flow with real models, run `scripts/demo_tor.py`. It writes both outputs to `data/outputs/demo/`.
+
 ---
 
 ## Evaluation
 
-**Unit tests (offline):** 26 tests in `tests/test_tor_compliance.py`, run with pytest. They use stub LLMs and a fake Jev endpoint with the real regulation corpus, so they make no network calls. They cover:
+**Unit tests (offline):** 30 tests in `tests/test_tor_compliance.py`, run with pytest. They use stub LLMs and a fake Jev endpoint with the real regulation corpus, so they make no network calls. They cover:
 
 - rule and citation resolution;
 - each deterministic check;
@@ -146,7 +159,7 @@ How the pipeline got here: four iterations with an LLM judge, then the switch to
 - **Overlapping semantic rules:** the same text can be flagged by both the brand-lock and the qualification rule. Deduplicate them in the UI or narrow the brand-lock scope.
 - **Specific-method wording:** the drafter can still write e-bidding wording. The checker catches it, but revision does not always fix it. Consider a deterministic rewrite or a stronger method-specific prompt.
 - **Tail latency:** a slow drafting request waits out a 40 s timeout before trying the fallback model, and this once pushed a TOR past 400 s. Add a shorter timeout with retry or hedged requests.
-- **No `.docx` output yet:** the pipeline returns structured data. A renderer for variable chapter templates is still to do.
+- **Drafter copies regulation text verbatim:** in a live demo, the terms chapter included an unrelated clause about construction utilities and an OCR error from ข้อ ๑๖๒. Retrieved clauses should be paraphrased, or the OCR text corrected at the source.
 - **Small test set:** the seeded defects were written by us. A set curated by procurement officers is needed to measure real-world recall.
 
 ---
@@ -158,7 +171,9 @@ DraftTOR_Agent/
 ├── app/
 │   ├── tor/                      # Template-driven TOR drafting and compliance
 │   │   ├── graph.py              #   LangGraph: draft → verify → revise
-│   │   ├── service.py            #   revise_chapter / apply_user_edit / acknowledge / export_gate / AuditLog
+│   │   ├── service.py            #   revise_chapter / apply_user_edit / acknowledge / export_gate / export_docx / AuditLog
+│   │   ├── api.py                #   web-facing TORDocumentView + JSON Schema export
+│   │   ├── export_docx.py        #   .docx renderer (Thai government layout)
 │   │   ├── drafting.py           #   structured chapter drafting, BOQ allocation, fact extraction
 │   │   ├── checks.py             #   rule runner, deterministic checks, verify(); LLM judge kept as fallback backend
 │   │   ├── jev_judge.py          #   per-sentence semantic judging with Jev
@@ -179,12 +194,16 @@ DraftTOR_Agent/
 │   └── audit/                    # Audit logs (git-ignored)
 ├── scripts/
 │   ├── eval_tor_compliance.py    # Evaluation against real models (suites A/B/C)
+│   ├── demo_tor.py               # End-to-end demo: JSON for the web + .docx download
 │   └── data_prep/                # Corpus download, ground-truth extraction, docx template builders
 ├── tests/
 │   ├── test_tor_compliance.py    # TOR pipeline (offline)
 │   └── test_evaluation_suite.py  # Memo / Agenda pipelines (calls the LLM)
 └── docs/
-    └── EXPERIMENTS.md            # How the design was reached: runs, failures, fixes, LLM vs Jev
+    ├── EXPERIMENTS.md            # How the design was reached: runs, failures, fixes, LLM vs Jev
+    ├── architecture.html         # Architecture diagram (open in a browser)
+    ├── api/                      # JSON Schema + sample payload for the web editor
+    └── samples/                  # Sample downloadable TOR (.docx / .pdf)
 ```
 
 ## Configuration

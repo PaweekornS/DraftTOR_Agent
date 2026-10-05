@@ -28,7 +28,7 @@ Desktop.ini
 .DS_Store
 
 # Output test docs (keep directory structure)
-data/outputs/*.docx
+data/outputs/**
 !data/outputs/.gitkeep
 ocr_docs/
 

@@ -107,6 +107,14 @@ class TestDeterministic(unittest.TestCase):
                      method=ProcurementMethod.SPECIFIC)
         self.assertEqual(f[0].status, FindingStatus.FAIL)
 
+    def test_findings_are_anchored_for_highlighting(self):
+        item = "เป็นนิติบุคคลผู้มีอาชีพรับจ้างงานที่ประกวดราคาอิเล็กทรอนิกส์ดังกล่าว"
+        text = ch("q", ChapterKind.LIST, items=["มีความสามารถตามกฎหมาย", item])
+        f = run_rule("METHOD_TERMINOLOGY_CONSISTENT", make_request(budget=300_000), [text],
+                     method=ProcurementMethod.SPECIFIC)[0]
+        self.assertEqual(f.anchor.item_index, 1)
+        self.assertEqual(item[f.anchor.start:f.anchor.end], "ประกวดราคาอิเล็กทรอนิกส์")
+
     def test_unverified_rule_never_fails(self):
         f = run_rule("REFERENCE_WORK_MAX_50PCT", make_request(), [],
                      TORFacts(min_reference_work_value=2_800_000))
@@ -372,6 +380,57 @@ class TestJevJudge(unittest.TestCase):
         verify(req, ProcurementMethod.E_BIDDING, chapters, get_regulation_index(), ScriptedLLM(), cache)
         self.assertGreater(first, 0)
         self.assertEqual(self.calls, first, "second verify of identical chapters must not call Jev")
+
+
+
+class TestWebAndExport(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from app.tor.service import AuditLog
+        self.tmp = tempfile.mkdtemp()
+        self.audit = AuditLog(self.tmp)
+        self.result = build_tor_compliance_graph(llm=ScriptedLLM()).invoke({"request": make_request()})["result"]
+
+    def test_thai_text_gets_invisible_word_breaks_only_between_thai_words(self):
+        from app.tor.export_docx import breakable
+        out = breakable("ระบบต้องรองรับ API จำนวน 500 ราย")
+        self.assertEqual(out.replace("​", ""), "ระบบต้องรองรับ API จำนวน 500 ราย")
+        self.assertIn("ระบบ​ต้อง", out)
+        self.assertNotIn("API​", out)
+
+    def test_view_is_json_and_hides_internals(self):
+        from app.tor.api import to_view
+        view = to_view(self.result)
+        payload = json.loads(view.model_dump_json())
+        self.assertNotIn("request", payload)
+        self.assertEqual(payload["project"]["procurement_method"], "e_bidding")
+        self.assertTrue(all(f["status"] != "pass" for f in payload["report"]["findings"]))
+        self.assertTrue(payload["report"]["export_ready"])
+
+    def test_export_blocked_until_acknowledged_and_draft_allowed(self):
+        import docx
+        from app.tor.export_docx import ExportBlocked
+        from app.tor.service import acknowledge, apply_user_edit, export_docx
+        bad = next(c for c in self.result.chapters if c.id == "payment").model_copy(update={"installments": [
+            Installment(no=1, percent=50, deliverable="x", due_day=60),
+            Installment(no=2, percent=60, deliverable="y", due_day=200)]})
+        res = apply_user_edit(self.result, bad, actor="u1", llm=ScriptedLLM(), audit=self.audit)
+        out = os.path.join(self.tmp, "tor.docx")
+        with self.assertRaises(ExportBlocked):
+            export_docx(res, out, actor="u1", audit=self.audit)
+        draft = export_docx(res, out, actor="u1", draft=True, audit=self.audit)
+        header = docx.Document(draft).sections[0].header.paragraphs[0].text
+        self.assertIn("ฉบับร่าง", header)
+        res = acknowledge(res, ["INSTALLMENTS_SUM_100:payment"], "u1", "อนุมัติแล้ว", audit=self.audit)
+        final = export_docx(res, out, actor="u1", audit=self.audit)
+        d = docx.Document(final)
+        self.assertEqual(d.sections[0].header.paragraphs[0].text, "")
+        body = "\n".join(p.text for p in d.paragraphs).replace("​", "")  # strip renderer word breaks
+        self.assertIn("ร่างขอบเขตของงาน", body)
+        self.assertIn("1. ความเป็นมา", body)
+        self.assertEqual(len(d.tables), 2, "BOQ and payment tables")
+        self.assertIn("สามล้านห้าแสนบาทถ้วน", d.tables[0].rows[-1].cells[0].text.replace("​", ""))
+        self.assertEqual([e["event"] for e in self.audit.read(res.document_id)][-2:], ["acknowledge", "export"])
 
 
 if __name__ == "__main__":

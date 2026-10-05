@@ -1,0 +1,523 @@
+{
+  "$defs": {
+    "Acknowledgement": {
+      "properties": {
+        "finding_key": {
+          "title": "Finding Key",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_key",
+        "actor",
+        "reason",
+        "at"
+      ],
+      "title": "Acknowledgement",
+      "type": "object"
+    },
+    "Anchor": {
+      "description": "Where a finding's evidence sits inside its chapter (for highlighting in the editor).",
+      "properties": {
+        "item_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Index into DraftChapter.items; None for text chapters",
+          "title": "Item Index"
+        },
+        "start": {
+          "description": "Start offset within the item (list) or within DraftChapter.text",
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "description": "End offset (exclusive)",
+          "title": "End",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "Anchor",
+      "type": "object"
+    },
+    "BOQItem": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "qty": {
+          "default": 1,
+          "title": "Qty",
+          "type": "integer"
+        },
+        "unit": {
+          "default": "รายการ",
+          "title": "Unit",
+          "type": "string"
+        },
+        "unit_price": {
+          "title": "Unit Price",
+          "type": "number"
+        },
+        "total_price": {
+          "title": "Total Price",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "unit_price",
+        "total_price"
+      ],
+      "title": "BOQItem",
+      "type": "object"
+    },
+    "ChapterKind": {
+      "enum": [
+        "text",
+        "list",
+        "boq",
+        "payment_schedule"
+      ],
+      "title": "ChapterKind",
+      "type": "string"
+    },
+    "Citation": {
+      "properties": {
+        "doc": {
+          "title": "Doc",
+          "type": "string"
+        },
+        "clause": {
+          "title": "Clause",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "required": [
+        "doc",
+        "clause"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "DraftChapter": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ChapterKind"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "boq": {
+          "items": {
+            "$ref": "#/$defs/BOQItem"
+          },
+          "title": "Boq",
+          "type": "array"
+        },
+        "installments": {
+          "items": {
+            "$ref": "#/$defs/Installment"
+          },
+          "title": "Installments",
+          "type": "array"
+        },
+        "used_fallback": {
+          "default": false,
+          "title": "Used Fallback",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind"
+      ],
+      "title": "DraftChapter",
+      "type": "object"
+    },
+    "FindingStatus": {
+      "enum": [
+        "pass",
+        "fail",
+        "warn",
+        "needs_human"
+      ],
+      "title": "FindingStatus",
+      "type": "string"
+    },
+    "FindingView": {
+      "properties": {
+        "key": {
+          "description": "Stable id (rule_id:chapter_id); pass to acknowledge()",
+          "title": "Key",
+          "type": "string"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "status": {
+          "$ref": "#/$defs/FindingStatus"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "chapter_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chapter Id"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
+        },
+        "anchor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Anchor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Highlight position inside the chapter"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggestion"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "citation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Citation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "acknowledged": {
+          "default": false,
+          "title": "Acknowledged",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "rule_id",
+        "title",
+        "severity",
+        "status",
+        "message"
+      ],
+      "title": "FindingView",
+      "type": "object"
+    },
+    "Installment": {
+      "properties": {
+        "no": {
+          "title": "No",
+          "type": "integer"
+        },
+        "percent": {
+          "title": "Percent",
+          "type": "number"
+        },
+        "deliverable": {
+          "title": "Deliverable",
+          "type": "string"
+        },
+        "due_day": {
+          "description": "ภายในวันที่เท่าใดนับจากวันลงนามสัญญา",
+          "title": "Due Day",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "no",
+        "percent",
+        "deliverable",
+        "due_day"
+      ],
+      "title": "Installment",
+      "type": "object"
+    },
+    "ProcurementMethod": {
+      "enum": [
+        "e_market",
+        "e_bidding",
+        "selection",
+        "specific",
+        "general_invitation"
+      ],
+      "title": "ProcurementMethod",
+      "type": "string"
+    },
+    "ProcurementType": {
+      "enum": [
+        "goods",
+        "services",
+        "consulting",
+        "design_supervision",
+        "construction"
+      ],
+      "title": "ProcurementType",
+      "type": "string"
+    },
+    "ProjectSummary": {
+      "properties": {
+        "project_name": {
+          "title": "Project Name",
+          "type": "string"
+        },
+        "agency_name": {
+          "title": "Agency Name",
+          "type": "string"
+        },
+        "budget": {
+          "title": "Budget",
+          "type": "number"
+        },
+        "duration_days": {
+          "title": "Duration Days",
+          "type": "integer"
+        },
+        "procurement_type": {
+          "$ref": "#/$defs/ProcurementType"
+        },
+        "procurement_type_label": {
+          "title": "Procurement Type Label",
+          "type": "string"
+        },
+        "procurement_method": {
+          "$ref": "#/$defs/ProcurementMethod"
+        },
+        "procurement_method_label": {
+          "title": "Procurement Method Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_name",
+        "agency_name",
+        "budget",
+        "duration_days",
+        "procurement_type",
+        "procurement_type_label",
+        "procurement_method",
+        "procurement_method_label"
+      ],
+      "title": "ProjectSummary",
+      "type": "object"
+    },
+    "ReportView": {
+      "properties": {
+        "passed": {
+          "description": "No blocking findings (before acknowledgements)",
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "export_ready": {
+          "description": "Every blocking finding is resolved or acknowledged",
+          "title": "Export Ready",
+          "type": "boolean"
+        },
+        "summary": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Count of findings by status",
+          "title": "Summary",
+          "type": "object"
+        },
+        "rules_version": {
+          "title": "Rules Version",
+          "type": "string"
+        },
+        "revisions": {
+          "title": "Revisions",
+          "type": "integer"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "findings": {
+          "description": "Non-pass findings only, most severe first",
+          "items": {
+            "$ref": "#/$defs/FindingView"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "acknowledgements": {
+          "items": {
+            "$ref": "#/$defs/Acknowledgement"
+          },
+          "title": "Acknowledgements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "passed",
+        "export_ready",
+        "summary",
+        "rules_version",
+        "revisions",
+        "assumptions",
+        "findings",
+        "acknowledgements"
+      ],
+      "title": "ReportView",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "critical",
+        "major",
+        "minor"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectSummary"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/DraftChapter"
+      },
+      "title": "Chapters",
+      "type": "array"
+    },
+    "report": {
+      "$ref": "#/$defs/ReportView"
+    }
+  },
+  "required": [
+    "document_id",
+    "version",
+    "project",
+    "chapters",
+    "report"
+  ],
+  "title": "TORDocumentView",
+  "type": "object"
+}

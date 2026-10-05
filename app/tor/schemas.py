@@ -125,6 +125,13 @@ class Citation(BaseModel):
     text: Optional[str] = None
 
 
+class Anchor(BaseModel):
+    """Where a finding's evidence sits inside its chapter (for highlighting in the editor)."""
+    item_index: Optional[int] = Field(None, description="Index into DraftChapter.items; None for text chapters")
+    start: int = Field(..., description="Start offset within the item (list) or within DraftChapter.text")
+    end: int = Field(..., description="End offset (exclusive)")
+
+
 class Finding(BaseModel):
     rule_id: str
     title: str
@@ -136,6 +143,7 @@ class Finding(BaseModel):
     suggestion: Optional[str] = None
     citation: Optional[Citation] = None
     confidence: Optional[float] = Field(None, description="Judge probability that this is a violation (Jev backend)")
+    anchor: Optional[Anchor] = None
 
     @property
     def key(self) -> str:
