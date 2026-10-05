@@ -200,8 +200,10 @@ def suite_a(runs: int):
             req = request(budget=budget) if budget else request()
             if budget:  # keep BOQ consistent with the smaller budget so only the seeded defect remains
                 chapters = mutate(chapters, "budget", boq=[BOQItem(name="ค่าพัฒนาระบบ", unit_price=budget, total_price=budget)])
+            t0 = time.time()
             facts = extract_facts(chapters, llm)
             f = run_compliance(req, method, chapters, facts, index, llm)
+            elapsed = round(time.time() - t0, 2)
             hits = _flagged(f, expected, verified)
             others = sorted({x.rule_id for x in f if x.rule_id != expected
                              and x.status in (FindingStatus.FAIL, FindingStatus.NEEDS_HUMAN)})
@@ -209,7 +211,10 @@ def suite_a(runs: int):
                          "detected": bool(hits), "correct": bool(hits) == should_flag,
                          "status": hits[0].status.value if hits else None,
                          "evidence": hits[0].evidence if hits else None, "other_flags": others,
-                         "facts": facts.model_dump(), "llm_calls": llm.calls, "llm_empty": llm.empty})
+                         "facts": facts.model_dump(), "llm_calls": llm.calls, "llm_empty": llm.empty,
+                         "seconds": elapsed,
+                         "confidence": max([x.confidence for x in f if x.rule_id == expected and x.confidence is not None],
+                                           default=None)})
             verdict = ("DETECTED" if hits else "MISSED  ") if should_flag else ("FALSE+  " if hits else "OK(neg) ")
             print(f"[A] run {r} {cid:28s} {verdict} others={others}")
     return {"cases": rows, "clean_baseline": fp_rows}
@@ -306,6 +311,9 @@ def summarize(report):
         s["A_clean_false_positive_runs"] = sum(1 for r in report["A"]["clean_baseline"] if r["flagged"])
         s["A_clean_runs"] = len(report["A"]["clean_baseline"])
         s["A_collateral_flags"] = sum(1 for r in report["A"]["cases"] if r["other_flags"])
+        sem = [r["seconds"] for r in report["A"]["cases"] if r["category"] == "semantic" and "seconds" in r]
+        if sem:
+            s["A_semantic_case_mean_seconds"] = round(sum(sem) / len(sem), 2)
     if "B" in report:
         rows = report["B"]["rows"]
         s["B_pass_rate"] = f"{sum(r['passed'] for r in rows)}/{len(rows)}"
@@ -326,14 +334,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--suites", default="A,B,C")
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--judge", choices=["llm", "jev"], default=None,
+                    help="semantic-rule judge backend (default: TOR_JUDGE_BACKEND setting)")
     args = ap.parse_args()
+    from app.config import settings
+    if args.judge:
+        settings.TOR_JUDGE_BACKEND = args.judge
     suites = set(args.suites.split(","))
     out_dir = Path("data/eval")
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     report = {"model": os.environ.get("LLM_MODEL_NAME") or __import__("app.config").config.settings.LLM_MODEL_NAME,
-              "runs": args.runs, "started": stamp}
+              "runs": args.runs, "started": stamp, "judge_backend": settings.TOR_JUDGE_BACKEND}
     if "A" in suites:
         report["A"] = suite_a(args.runs)
     base_results = {}

@@ -135,6 +135,7 @@ class Finding(BaseModel):
     evidence: Optional[str] = None
     suggestion: Optional[str] = None
     citation: Optional[Citation] = None
+    confidence: Optional[float] = Field(None, description="Judge probability that this is a violation (Jev backend)")
 
     @property
     def key(self) -> str:

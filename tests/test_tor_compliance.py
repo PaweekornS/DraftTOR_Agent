@@ -16,6 +16,11 @@ from app.tor.schemas import (
     TemplateChapter, TORFacts, TORRequest, TORTemplateSpec,
 )
 
+# Offline suite: never reach the network. LLM-judge tests use stub LLMs; TestJevJudge
+# switches to the jev backend with a fake decisions endpoint.
+from app.config import settings as _settings
+_settings.TOR_JUDGE_BACKEND = "llm"
+
 TEMPLATE = TORTemplateSpec(template_id="ebidding_service_over_500k", chapters=[
     TemplateChapter(id="background", title="ความเป็นมา", kind=ChapterKind.TEXT),
     TemplateChapter(id="spec", title="คุณลักษณะเฉพาะ", kind=ChapterKind.LIST),
@@ -288,6 +293,85 @@ class TestConcurrency(unittest.TestCase):
         # Both judge rules cover 'background' (no qualification-titled chapter in this template),
         # so the edited chapter is re-judged once per rule; every other chapter comes from cache.
         self.assertEqual(calls["judge"] - first, 2, "only the edited chapter should be re-judged")
+
+
+
+class TestJevJudge(unittest.TestCase):
+    """Jev backend with a fake decisions endpoint (keyword-driven probabilities)."""
+
+    def setUp(self):
+        from app.config import settings
+        from app.services import jev_client
+        self.settings, self.jev_client = settings, jev_client
+        self._backend, self._decide = settings.TOR_JUDGE_BACKEND, jev_client.decide
+        settings.TOR_JUDGE_BACKEND = "jev"
+        self.calls = 0
+
+        def fake(state, questions):
+            self.calls += 1
+            out = {}
+            for qid, q in questions.items():
+                text = q["instructions"]
+                p = 0.95 if "Dell" in text else 0.55 if "Lenovo" in text else 0.02
+                other = next(k for k in q["criteria"] if k != "compliant")
+                out[qid] = {"type": "choice", "probabilities": {other: p, "compliant": round(1 - p, 4)}}
+            return out
+        jev_client.decide = fake
+
+    def tearDown(self):
+        self.settings.TOR_JUDGE_BACKEND = self._backend
+        self.jev_client.decide = self._decide
+
+    def spec(self, *items):
+        return ch("spec", ChapterKind.LIST, items=list(items))
+
+    def test_thresholds_map_to_fail_review_pass(self):
+        f = run_rule("SPEC_NO_BRAND_LOCK", make_request(),
+                     [self.spec("เครื่องแม่ข่าย Dell R760", "โน้ตบุ๊ก Lenovo หรือเทียบเท่า", "รองรับผู้ใช้ 500 ราย")])
+        by_status = {x.status: x for x in f}
+        self.assertEqual(by_status[FindingStatus.FAIL].evidence, "เครื่องแม่ข่าย Dell R760")
+        self.assertEqual(by_status[FindingStatus.NEEDS_HUMAN].evidence, "โน้ตบุ๊ก Lenovo หรือเทียบเท่า")
+        self.assertEqual(len(f), 2, "the compliant unit must not produce a finding")
+        self.assertAlmostEqual(by_status[FindingStatus.FAIL].confidence, 0.95)
+
+    def test_clean_chapter_passes(self):
+        f = run_rule("SPEC_NO_BRAND_LOCK", make_request(), [self.spec("รองรับผู้ใช้ 500 ราย")])
+        self.assertEqual([x.status for x in f], [FindingStatus.PASS])
+
+    def test_jev_outage_needs_human(self):
+        def down(state, questions):
+            raise RuntimeError("503")
+        self.jev_client.decide = down
+        f = run_rule("SPEC_NO_BRAND_LOCK", make_request(), [self.spec("รองรับผู้ใช้ 500 ราย")])
+        self.assertEqual(f[0].status, FindingStatus.NEEDS_HUMAN)
+
+    def test_checklist_rule_uses_items_as_criteria(self):
+        seen = {}
+        def spy(state, questions):
+            seen.update(next(iter(questions.values()))["criteria"])
+            return {qid: {"probabilities": {"compliant": 1.0}} for qid in questions}
+        self.jev_client.decide = spy
+        quals = ch("q", ChapterKind.LIST, items=["มีความสามารถตามกฎหมาย"])
+        quals.title = "คุณสมบัติของผู้ยื่นข้อเสนอ"
+        run_rule("QUALIFICATIONS_PROPORTIONATE", make_request(), [quals])
+        self.assertIn("item_1", seen)
+        self.assertIn("compliant", seen)
+
+    def test_prose_is_split_into_sentence_units(self):
+        from app.tor.jev_judge import split_units
+        prose = ch("t", ChapterKind.TEXT, text="ประโยคแรกที่ยาวพอสมควรสำหรับการตรวจสอบรายละเอียด.  ประโยคที่สองที่ยาวพอสมควรเช่นกันสำหรับการตรวจ")
+        self.assertEqual(len(split_units(prose)), 2)
+
+    def test_unchanged_units_hit_cache(self):
+        from app.tor.checks import verify
+        from app.tor.concurrency import JudgeCache
+        cache, req = JudgeCache(), make_request()
+        chapters = [self.spec("รองรับผู้ใช้ 500 ราย"), ch("background", ChapterKind.TEXT, text="ความเป็นมาของโครงการโดยละเอียด")]
+        verify(req, ProcurementMethod.E_BIDDING, chapters, get_regulation_index(), ScriptedLLM(), cache)
+        first = self.calls
+        verify(req, ProcurementMethod.E_BIDDING, chapters, get_regulation_index(), ScriptedLLM(), cache)
+        self.assertGreater(first, 0)
+        self.assertEqual(self.calls, first, "second verify of identical chapters must not call Jev")
 
 
 if __name__ == "__main__":

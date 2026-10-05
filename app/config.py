@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     TOR_MAX_REVISIONS: int = 2
     TOR_AUDIT_DIR: str = "data/audit"
     TOR_LLM_CONCURRENCY: int = 4
+    # Semantic-rule judge: "llm" (generative judge) or "jev" (TypeSafe Jev decision model)
+    TOR_JUDGE_BACKEND: str = "jev"
+    JEV_MODEL_NAME: str = "typesafe/jev-1.13"
+    JEV_DECISIONS_URL: str = "https://openrouter.ai/api/alpha/decisions"
+    JEV_MAX_QUESTIONS_PER_REQUEST: int = 20
 
     model_config = SettingsConfigDict(
         env_file=".env",

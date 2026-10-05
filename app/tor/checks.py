@@ -303,6 +303,11 @@ def llm_judge(ctx: CheckContext) -> List[Finding]:
     targets = scoped or targets
     if not targets:
         return ctx.ok("ไม่มีบทที่ต้องตรวจ")
+    if settings.TOR_JUDGE_BACKEND == "jev":
+        from app.tor.jev_judge import jev_judge_chapters
+        out = jev_judge_chapters(ctx, targets)
+        failing = [f for f in out if f.status != FindingStatus.PASS]
+        return failing or ctx.ok()
     per_chapter = pmap(lambda c: _judge_chapter(ctx, c), targets)
     out = [f for fs in per_chapter for f in fs]
     failing = [f for f in out if f.status != FindingStatus.PASS]
